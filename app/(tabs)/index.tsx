@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
+import * as ImageManipulator from 'expo-image-manipulator';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -18,12 +19,14 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useCTAnalysis } from '@/hooks/use-ct-analysis';
 import { ImageSourceButtons } from '@/components/image-source-buttons';
 import { MarkdownResult } from '@/components/markdown-result';
+import { CropModal } from '@/components/crop-modal';
 
 export default function AnalyzeScreen() {
   const insets = useSafeAreaInsets();
   const colorScheme = useColorScheme();
   const isDark = colorScheme === 'dark';
   const [imageUri, setImageUri] = useState<string | null>(null);
+  const [pendingCropUri, setPendingCropUri] = useState<string | null>(null);
   const { result, isLoading, error, analyze, reset } = useCTAnalysis();
 
   const cardBg = isDark ? '#1e2123' : '#f4f6f8';
@@ -51,21 +54,44 @@ export default function AnalyzeScreen() {
         ? ImagePicker.launchCameraAsync
         : ImagePicker.launchImageLibraryAsync;
 
-    const result = await launchFn({
+    const isWeb = Platform.OS === 'web';
+
+    const pickerResult = await launchFn({
       mediaTypes: ['images'],
-      quality: 0.8,
-      base64: true,
+      quality: 1,
+      ...(isWeb ? {} : { allowsEditing: true, aspect: [896, 869] as [number, number] }),
     });
 
-    if (result.canceled || !result.assets?.[0]) return;
+    if (pickerResult.canceled || !pickerResult.assets?.[0]) return;
 
-    const asset = result.assets[0];
-    setImageUri(asset.uri);
+    const asset = pickerResult.assets[0];
     reset();
 
-    if (asset.base64) {
-      analyze(asset.base64);
+    if (isWeb) {
+      // On web, open the crop modal for interactive cropping
+      setPendingCropUri(asset.uri);
+    } else {
+      // On native, the picker already cropped — just resize to exact dimensions
+      const manipulated = await ImageManipulator.manipulateAsync(
+        asset.uri,
+        [{ resize: { width: 896, height: 869 } }],
+        { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG, base64: true }
+      );
+      setImageUri(manipulated.uri);
+      if (manipulated.base64) {
+        analyze(manipulated.base64);
+      }
     }
+  }
+
+  function handleCropDone(uri: string, base64: string) {
+    setPendingCropUri(null);
+    setImageUri(uri);
+    analyze(base64);
+  }
+
+  function handleCropCancel() {
+    setPendingCropUri(null);
   }
 
   return (
@@ -148,6 +174,12 @@ export default function AnalyzeScreen() {
           <MarkdownResult content={result} />
         </View>
       )}
+
+      <CropModal
+        uri={pendingCropUri}
+        onCropDone={handleCropDone}
+        onCancel={handleCropCancel}
+      />
     </ScrollView>
   );
 }

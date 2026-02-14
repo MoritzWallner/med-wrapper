@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
@@ -105,38 +105,44 @@ export function CropModal({ uri, onCropDone, onCancel }: CropModalProps) {
     y: (containerSize.h - imgDisplay.h) / 2 + pan.y,
   }), [containerSize, imgDisplay, pan]);
 
-  // Mouse/pointer handlers
-  const handlePointerDown = useCallback((e: React.PointerEvent) => {
-    dragging.current = true;
-    lastPos.current = { x: e.clientX, y: e.clientY };
-    (e.target as HTMLElement).setPointerCapture(e.pointerId);
-  }, []);
-
-  const handlePointerMove = useCallback((e: React.PointerEvent) => {
-    if (!dragging.current) return;
-    setPan(p => ({
-      x: p.x + e.clientX - lastPos.current.x,
-      y: p.y + e.clientY - lastPos.current.y,
-    }));
-    lastPos.current = { x: e.clientX, y: e.clientY };
-  }, []);
-
-  const handlePointerUp = useCallback(() => {
-    dragging.current = false;
-  }, []);
-
-  const handleWheel = useCallback((e: WheelEvent) => {
-    e.preventDefault();
-    setZoom(z => Math.max(1, Math.min(5, z - e.deltaY * 0.002)));
-  }, []);
-
-  // Attach wheel listener with { passive: false } to allow preventDefault
+  // Attach pointer & wheel listeners directly to the DOM element
+  // to bypass React Native web's gesture responder system
   useEffect(() => {
     const el = containerRef.current;
     if (!el || !uri) return;
-    el.addEventListener('wheel', handleWheel, { passive: false });
-    return () => el.removeEventListener('wheel', handleWheel);
-  }, [uri, handleWheel]);
+
+    function onPointerDown(e: PointerEvent) {
+      dragging.current = true;
+      lastPos.current = { x: e.clientX, y: e.clientY };
+      el!.setPointerCapture(e.pointerId);
+    }
+    function onPointerMove(e: PointerEvent) {
+      if (!dragging.current) return;
+      setPan(p => ({
+        x: p.x + e.clientX - lastPos.current.x,
+        y: p.y + e.clientY - lastPos.current.y,
+      }));
+      lastPos.current = { x: e.clientX, y: e.clientY };
+    }
+    function onPointerUp() {
+      dragging.current = false;
+    }
+    function onWheel(e: WheelEvent) {
+      e.preventDefault();
+      setZoom(z => Math.max(1, Math.min(5, z - e.deltaY * 0.002)));
+    }
+
+    el.addEventListener('pointerdown', onPointerDown);
+    el.addEventListener('pointermove', onPointerMove);
+    el.addEventListener('pointerup', onPointerUp);
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => {
+      el.removeEventListener('pointerdown', onPointerDown);
+      el.removeEventListener('pointermove', onPointerMove);
+      el.removeEventListener('pointerup', onPointerUp);
+      el.removeEventListener('wheel', onWheel);
+    };
+  }, [uri]);
 
   async function handleConfirm() {
     if (!uri || !naturalSize.w) return;
@@ -178,9 +184,6 @@ export function CropModal({ uri, onCropDone, onCancel }: CropModalProps) {
           flex: 1, position: 'relative', overflow: 'hidden', cursor: 'grab',
           userSelect: 'none', touchAction: 'none',
         }}
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
       >
         {/* The image */}
         {naturalSize.w > 0 && (
@@ -225,9 +228,10 @@ export function CropModal({ uri, onCropDone, onCancel }: CropModalProps) {
 
       {/* Controls */}
       <div style={{
-        display: 'flex', gap: 16, padding: 20,
+        display: 'flex', gap: 16, padding: '16px 20px 60px',
         justifyContent: 'center', alignItems: 'center',
         backgroundColor: isDark ? '#111' : '#222',
+        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
       }}>
         <span style={{ color: '#999', fontSize: 13, marginRight: 8 }}>
           Drag to pan &middot; Scroll to zoom

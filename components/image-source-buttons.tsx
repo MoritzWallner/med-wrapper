@@ -5,11 +5,12 @@ interface ImageSourceButtonsProps {
   onTakePhoto: () => void;
   onChooseFile: () => void;
   disabled?: boolean;
+  vertical?: boolean;
 }
 
-export function ImageSourceButtons({ onTakePhoto, onChooseFile, disabled }: ImageSourceButtonsProps) {
+export function ImageSourceButtons({ onTakePhoto, onChooseFile, disabled, vertical }: ImageSourceButtonsProps) {
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, vertical && styles.containerVertical]}>
       {Platform.OS !== 'web' && (
         <TouchableOpacity
           style={[styles.button, disabled && styles.buttonDisabled]}
@@ -39,6 +40,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 12,
   },
+  containerVertical: {
+    flexDirection: 'column',
+  },
   button: {
     flex: 1,
     flexDirection: 'row',
@@ -46,7 +50,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 8,
     backgroundColor: '#0a7ea4',
-    paddingVertical: 14,
+    paddingVertical: 10,
     borderRadius: 12,
   },
   buttonDisabled: {

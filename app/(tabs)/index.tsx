@@ -28,12 +28,13 @@ import { useHistory } from '@/contexts/history-context';
 export default function AnalyzeScreen() {
   const colorScheme = useColorScheme();
   const isDark = colorScheme === 'dark';
-  const { chatArray, isLoading, error, hasImage, setImage, send, reset, retry } = useChat();
+  const { chatArray, isLoading, isAnalyzing, error, analyzeImage, send, reset, retry } = useChat();
   const [inputText, setInputText] = useState('');
   const [pendingCropUri, setPendingCropUri] = useState<string | null>(null);
-  const [imageReady, setImageReady] = useState(false);
   const [imageUri, setImageUri] = useState<string | null>(null);
+  const [analysisStarted, setAnalysisStarted] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
+  const imageBase64Ref = useRef<string | null>(null);
   const { width, height } = useWindowDimensions();
   const isLandscape = width > height;
 
@@ -41,13 +42,21 @@ export default function AnalyzeScreen() {
   const hasChatStarted = chatArray.length > 0;
   const historyIdRef = useRef<string | null>(null);
 
+  // Auto-close crop modal when analysis finishes (web flow)
+  useEffect(() => {
+    if (analysisStarted && !isAnalyzing) {
+      setPendingCropUri(null);
+      setAnalysisStarted(false);
+    }
+  }, [analysisStarted, isAnalyzing]);
+
   function saveToHistory() {
     if (chatArray.length === 0) return;
-    if (!chatArray.some((m) => m.type === 'ai')) return;
+    if (!chatArray.some((m) => m.type === 'assistant')) return;
 
     if (!historyIdRef.current) {
-      const firstUser = chatArray.find((m) => m.type === 'user');
-      const title = firstUser?.text?.slice(0, 60) || 'CT Analysis';
+      const firstAssistant = chatArray.find((m) => m.type === 'assistant');
+      const title = firstAssistant?.text?.slice(0, 60) || 'CT Analysis';
       historyIdRef.current = addEntry({
         timestamp: Date.now(),
         title,
@@ -65,8 +74,8 @@ export default function AnalyzeScreen() {
   function handleNewChat() {
     saveToHistory();
     reset();
-    setImageReady(false);
     setImageUri(null);
+    imageBase64Ref.current = null;
     historyIdRef.current = null;
   }
 
@@ -104,8 +113,8 @@ export default function AnalyzeScreen() {
 
     const asset = pickerResult.assets[0];
     reset();
-    setImageReady(false);
     setImageUri(null);
+    imageBase64Ref.current = null;
 
     if (isWeb) {
       setPendingCropUri(asset.uri);
@@ -116,32 +125,38 @@ export default function AnalyzeScreen() {
         { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG, base64: true }
       );
       if (manipulated.base64) {
-        setImage(manipulated.base64);
+        imageBase64Ref.current = manipulated.base64;
         setImageUri(manipulated.uri);
-        setImageReady(true);
+        analyzeImage(manipulated.base64);
       }
     }
   }
 
   function handleCropDone(uri: string, base64: string) {
-    setPendingCropUri(null);
-    setImage(base64);
+    imageBase64Ref.current = base64;
     setImageUri(uri);
-    setImageReady(true);
+    setAnalysisStarted(true);
+    analyzeImage(base64);
+    // Modal stays open — auto-closed by useEffect when analysis finishes
   }
 
   function handleCropCancel() {
+    if (isAnalyzing) {
+      reset();
+    }
     setPendingCropUri(null);
+    setAnalysisStarted(false);
   }
 
   function handleSend() {
     const text = inputText.trim();
+    if (!text) return;
     setInputText('');
-    send(text || undefined);
+    send(text);
     setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
   }
 
-  const canSend = imageReady && !isLoading;
+  const canSend = hasChatStarted && !isLoading && !isAnalyzing;
   const bgColor = isDark ? '#151718' : '#fff';
   const inputBg = isDark ? '#1e2123' : '#f4f6f8';
   const inputBorder = isDark ? '#2c3035' : '#e2e6ea';
@@ -187,8 +202,8 @@ export default function AnalyzeScreen() {
         )}
       </View>
 
-      {/* Error */}
-      {error && (
+      {/* Error in chat (follow-up errors) */}
+      {error && hasChatStarted && (
         <View
           style={[
             styles.errorCard,
@@ -252,9 +267,7 @@ export default function AnalyzeScreen() {
             color: textColor,
           },
         ]}
-        placeholder={
-          hasChatStarted ? 'Ask a follow-up...' : 'Describe what to analyze...'
-        }
+        placeholder="Ask a follow-up..."
         placeholderTextColor={placeholderColor}
         value={inputText}
         onChangeText={setInputText}
@@ -294,6 +307,72 @@ export default function AnalyzeScreen() {
         <MaterialIcons name="photo-library" size={16} color="#fff" />
         <Text style={styles.uploadNewText}>Upload new</Text>
       </TouchableOpacity>
+    </View>
+  );
+
+  // Error card shown after analysis failure (before chat starts)
+  const analysisErrorView = (
+    <ScrollView contentContainerStyle={styles.landingContainer}>
+      <View style={styles.landingContent}>
+        <View style={styles.header}>
+          <Text style={[styles.title, { color: isDark ? '#fff' : '#11181C' }]}>
+            CT Scan Analyzer
+          </Text>
+        </View>
+        <View
+          style={[
+            styles.errorCard,
+            {
+              backgroundColor: isDark ? '#2a1215' : '#fef2f2',
+              borderColor: isDark ? '#5c2328' : '#fecaca',
+            },
+          ]}
+        >
+          <View style={styles.errorHeader}>
+            <MaterialIcons name="error-outline" size={20} color="#ef4444" />
+            <Text style={[styles.errorTitle, { color: isDark ? '#fca5a5' : '#dc2626' }]}>
+              Analysis Failed
+            </Text>
+          </View>
+          <Text style={[styles.errorMessage, { color: isDark ? '#fca5a5' : '#991b1b' }]}>
+            {error}
+          </Text>
+          <View style={{ flexDirection: 'row', gap: 8, marginTop: 4 }}>
+            <TouchableOpacity
+              style={styles.retryButton}
+              onPress={() => {
+                if (imageBase64Ref.current) analyzeImage(imageBase64Ref.current);
+              }}
+              activeOpacity={0.7}
+            >
+              <MaterialIcons name="refresh" size={16} color="#fff" />
+              <Text style={styles.retryText}>Retry Analysis</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.retryButton, { backgroundColor: isDark ? '#333' : '#666' }]}
+              onPress={handleNewChat}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.retryText}>New Image</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </ScrollView>
+  );
+
+  // Native analyzing view (image preview + spinner)
+  const analyzingView = (
+    <View style={styles.analyzingContainer}>
+      {imageUri && (
+        <Image source={{ uri: imageUri }} contentFit="contain" style={styles.analyzingImage} />
+      )}
+      <View style={styles.analyzingOverlay}>
+        <ActivityIndicator size="large" color="#0a7ea4" />
+        <Text style={[styles.analyzingText, { color: isDark ? '#ccc' : '#333' }]}>
+          Analyzing...
+        </Text>
+      </View>
     </View>
   );
 
@@ -339,6 +418,30 @@ export default function AnalyzeScreen() {
     ? {}
     : { behavior: 'padding' as const, keyboardVerticalOffset: 90 };
 
+  // Determine which view to render
+  let mainContent;
+  if (hasChatStarted && imageUri) {
+    // Split view: image + chat
+    mainContent = (
+      <View style={isHorizontalSplit ? styles.splitRow : styles.splitColumn}>
+        {leftPanel}
+        {isHorizontalSplit && <View style={[styles.divider, { backgroundColor: inputBorder }]} />}
+        <View style={styles.chatPanel}>
+          {chatScrollContent()}
+          {inputBar}
+        </View>
+      </View>
+    );
+  } else if (error && imageUri && !hasChatStarted) {
+    // Analysis failed — show error with retry
+    mainContent = analysisErrorView;
+  } else if (isAnalyzing && imageUri && Platform.OS !== 'web') {
+    // Native: analyzing in progress
+    mainContent = analyzingView;
+  } else {
+    mainContent = landingView;
+  }
+
   return (
     <SafeAreaView
       style={[
@@ -351,23 +454,13 @@ export default function AnalyzeScreen() {
         style={styles.container}
         {...wrapperProps}
       >
-        {imageReady && imageUri ? (
-          <View style={isHorizontalSplit ? styles.splitRow : styles.splitColumn}>
-            {leftPanel}
-            {isHorizontalSplit && <View style={[styles.divider, { backgroundColor: inputBorder }]} />}
-            <View style={styles.chatPanel}>
-              {chatScrollContent()}
-              {inputBar}
-            </View>
-          </View>
-        ) : (
-          landingView
-        )}
+        {mainContent}
 
         <CropModal
           uri={pendingCropUri}
           onCropDone={handleCropDone}
           onCancel={handleCropCancel}
+          isAnalyzing={isAnalyzing}
         />
       </Wrapper>
     </SafeAreaView>
@@ -571,6 +664,25 @@ const styles = StyleSheet.create({
   uploadNewText: {
     color: '#fff',
     fontSize: 13,
+    fontWeight: '600',
+  },
+  analyzingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  analyzingImage: {
+    width: '60%',
+    height: '50%',
+    borderRadius: 16,
+  },
+  analyzingOverlay: {
+    alignItems: 'center',
+    gap: 12,
+    marginTop: 24,
+  },
+  analyzingText: {
+    fontSize: 16,
     fontWeight: '600',
   },
 });

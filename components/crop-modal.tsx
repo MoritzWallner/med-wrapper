@@ -2,6 +2,7 @@ export interface CropModalProps {
   uri: string | null;
   onCropDone: (uri: string, base64: string) => void;
   onCancel: () => void;
+  isAnalyzing?: boolean;
 }
 
 /**

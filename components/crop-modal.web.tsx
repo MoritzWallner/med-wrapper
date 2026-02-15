@@ -6,6 +6,7 @@ export interface CropModalProps {
   uri: string | null;
   onCropDone: (uri: string, base64: string) => void;
   onCancel: () => void;
+  isAnalyzing?: boolean;
 }
 
 const TARGET_W = 896;
@@ -32,7 +33,7 @@ function cropWithCanvas(
   });
 }
 
-export function CropModal({ uri, onCropDone, onCancel }: CropModalProps) {
+export function CropModal({ uri, onCropDone, onCancel, isAnalyzing = false }: CropModalProps) {
   const colorScheme = useColorScheme();
   const isDark = colorScheme === 'dark';
 
@@ -44,6 +45,7 @@ export function CropModal({ uri, onCropDone, onCancel }: CropModalProps) {
   const dragging = useRef(false);
   const lastPos = useRef({ x: 0, y: 0 });
   const [processing, setProcessing] = useState(false);
+  const busy = processing || isAnalyzing;
 
   // Load natural image dimensions
   useEffect(() => {
@@ -238,33 +240,47 @@ export function CropModal({ uri, onCropDone, onCancel }: CropModalProps) {
         </span>
         <button
           onClick={onCancel}
-          disabled={processing}
+          disabled={busy}
           style={{
             padding: '12px 24px', borderRadius: 12,
             border: `1px solid ${isDark ? '#555' : '#999'}`,
             background: 'transparent',
             color: isDark ? '#ccc' : '#ddd',
-            fontSize: 16, fontWeight: 600, cursor: 'pointer',
+            fontSize: 16, fontWeight: 600, cursor: busy ? 'not-allowed' : 'pointer',
             minWidth: 120,
+            opacity: busy ? 0.5 : 1,
           }}
         >
           Cancel
         </button>
         <button
           onClick={handleConfirm}
-          disabled={processing}
+          disabled={busy}
           style={{
             padding: '12px 24px', borderRadius: 12,
             border: 'none',
             background: '#0a7ea4',
             color: '#fff',
-            fontSize: 16, fontWeight: 600, cursor: 'pointer',
-            opacity: processing ? 0.6 : 1,
+            fontSize: 16, fontWeight: 600, cursor: busy ? 'not-allowed' : 'pointer',
+            opacity: busy ? 0.6 : 1,
             minWidth: 160,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
           }}
         >
-          {processing ? 'Processing...' : 'Crop & Analyze'}
+          {isAnalyzing ? (
+            <>
+              <span style={{
+                display: 'inline-block', width: 16, height: 16,
+                border: '2px solid rgba(255,255,255,0.3)',
+                borderTopColor: '#fff',
+                borderRadius: '50%',
+                animation: 'crop-spin 0.8s linear infinite',
+              }} />
+              Analyzing...
+            </>
+          ) : processing ? 'Processing...' : 'Crop & Analyze'}
         </button>
+        <style>{`@keyframes crop-spin { to { transform: rotate(360deg); } }`}</style>
       </div>
     </div>
   );
